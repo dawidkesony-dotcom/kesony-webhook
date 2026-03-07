@@ -14,37 +14,13 @@ export default async function handler(req, res) {
     const duration = toolCall?.function?.arguments?.duration;
     const toolCallId = toolCall?.id;
 
-    if (!duration || !toolCallId) {
-      console.log("Missing duration/toolCallId");
-      return res.status(400).send("Missing duration");
-    }
+    // ✅ CALL DATA JEST TUTAJ:
+    const callId = body?.call?.id;
+    const phone = body?.call?.customer?.number;
 
-    // ✅ Extract callId from webhook metadata
-    const callId = body?.call?.id || body?.callId;
-
-    // ✅ If callId not provided, extract from toolCall metadata
-    const inferredCallId = body?.message?.call?.id || body?.call?.id;
-
-    const finalCallId = callId || inferredCallId;
-
-    if (!finalCallId) {
-      console.log("No callId in payload");
-      return res.status(400).send("Missing callId");
-    }
-
-    // ✅ Fetch call from Vapi
-    const callRes = await fetch(`https://api.vapi.ai/call/${finalCallId}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.VAPI_PRIVATE_KEY}`
-      }
-    });
-
-    const callData = await callRes.json();
-    const phone = callData?.customer?.number;
-
-    if (!phone) {
-      console.log("No phone in callData", callData);
-      return res.status(400).send("Missing phone");
+    if (!duration || !phone || !callId) {
+      console.log("Missing data", { duration, phone, callId });
+      return res.status(400).send("Missing duration/phone/callId");
     }
 
     const { TWILIO_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER } = process.env;
@@ -60,8 +36,11 @@ export default async function handler(req, res) {
     else
       return res.status(400).send("Invalid duration");
 
+    const urlWithMetadata =
+      `${paymentLink}?prefilled_metadata[callId]=${encodeURIComponent(callId)}`;
+
     await twilio.messages.create({
-      body: `Kesony Garage: płatność za ${duration} min konsultacji:\n${paymentLink}`,
+      body: `Kesony Garage: płatność za ${duration} min konsultacji:\n${urlWithMetadata}`,
       from: TWILIO_NUMBER,
       to: phone
     });
