@@ -12,18 +12,30 @@ export default async function handler(req, res) {
 
     const toolCall = body?.message?.toolCallList?.[0];
     const duration = toolCall?.function?.arguments?.duration;
-    const toolCallId = toolCall?.id;
+    const providedPhone = toolCall?.function?.arguments?.phone;
 
-    // ✅ CALL DATA JEST TUTAJ:
-    const callId = body?.call?.id;
-    const phone = body?.call?.customer?.number;
+    if (!duration) {
+      return res.status(400).send("Missing duration");
+    }
 
-    if (!duration || !phone || !callId) {
-      console.log("Missing data", { duration, phone, callId });
-      return res.status(400).send("Missing duration/phone/callId");
+    // ✅ Jeśli nie ma telefonu → powiedz asystentowi, żeby zapytał
+    if (!providedPhone) {
+      return res.json({
+        results: [
+          {
+            toolCallId: toolCall.id,
+            result: "NO_PHONE"
+          }
+        ]
+      });
     }
 
     const { TWILIO_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER } = process.env;
+
+    if (!TWILIO_SID || !TWILIO_AUTH_TOKEN || !TWILIO_NUMBER) {
+      return res.status(500).send("Missing Twilio env vars");
+    }
+
     const twilio = Twilio(TWILIO_SID, TWILIO_AUTH_TOKEN);
 
     let paymentLink;
@@ -36,11 +48,12 @@ export default async function handler(req, res) {
     else
       return res.status(400).send("Invalid duration");
 
-    const urlWithMetadata =
-      `${paymentLink}?prefilled_metadata[callId]=${encodeURIComponent(callId)}`;
+    const phone = providedPhone.startsWith("+")
+      ? providedPhone
+      : "+44" + providedPhone.replace(/^0/, "");
 
     await twilio.messages.create({
-      body: `Kesony Garage: płatność za ${duration} min konsultacji:\n${urlWithMetadata}`,
+      body: `Kesony Garage: płatność za ${duration} min konsultacji:\n${paymentLink}`,
       from: TWILIO_NUMBER,
       to: phone
     });
@@ -48,14 +61,14 @@ export default async function handler(req, res) {
     return res.json({
       results: [
         {
-          toolCallId,
-          result: "SMS sent"
+          toolCallId: toolCall.id,
+          result: "SMS_SENT"
         }
       ]
     });
 
   } catch (err) {
-    console.error("ERROR:", err);
+    console.error("SEND PAYMENT LINK ERROR:", err);
     return res.status(500).send(err.message);
   }
 }
