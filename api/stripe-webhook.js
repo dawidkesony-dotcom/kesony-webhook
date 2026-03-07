@@ -1,47 +1,46 @@
-import Stripe from "stripe";
+import Stripe from 'stripe';
+import Twilio from 'twilio';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+const twilio = Twilio(
+  process.env.TWILIO_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
 export default async function handler(req, res) {
-  const sig = req.headers["stripe-signature"];
+  if (req.method !== 'POST') return res.status(405).send('No');
 
-  let event;
+  const { duration, phone, callId } = req.body;
+  if (!duration || !phone || !callId)
+    return res.status(400).send('Brak danych');
+
+  let paymentLink;
+
+  if (duration === '15')
+    paymentLink = 'https://buy.stripe.com/5kQdRa8WCaBO9Kf3O43VC00';
+  else if (duration === '30')
+    paymentLink = 'https://buy.stripe.com/3cI28s7Sy6lycWr2K03VC01';
+  else if (duration === '60')
+    paymentLink = 'https://buy.stripe.com/dRm9AUa0GdO0bSnckA3VC02';
+  else
+    return res.status(400).send('Zły czas');
+
+  // ✅ Attach callId so webhook can transfer
+  const urlWithMetadata =
+    `${paymentLink}?prefilled_metadata[callId]=${callId}`;
 
   try {
-    const rawBody = await buffer(req);
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
+    await twilio.messages.create({
+      body: `Kesony Garage: płatność za ${duration} min konsultacji:\n${urlWithMetadata}`,
+      from: process.env.TWILIO_NUMBER,
+      to: phone.startsWith('+44')
+        ? phone
+        : '+44' + phone.replace(/^0/, '')
+    });
+
+    res.status(200).send('✅ SMS wysłany');
   } catch (err) {
-    console.log("Webhook error:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error(err);
+    res.status(500).send('Błąd: ' + err.message);
   }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-
-    console.log("✅ Payment received:", session.payment_link);
-
-    // Here we will trigger Vapi transfer
-    // (we’ll add this next)
-  }
-
-  res.json({ received: true });
-}
-
-function buffer(readable) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    readable.on("data", (chunk) => chunks.push(chunk));
-    readable.on("end", () => resolve(Buffer.concat(chunks)));
-    readable.on("error", reject);
-  });
 }
